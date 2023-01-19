@@ -1,0 +1,85 @@
+
+package io.helidon.example.tracing.jaeger;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.TimeUnit;
+
+import io.helidon.media.jsonp.JsonpSupport;
+import io.helidon.common.http.Http;
+import io.helidon.webclient.WebClient;
+import io.helidon.webclient.WebClientResponse;
+import io.helidon.webserver.WebServer;
+
+import org.junit.jupiter.api.Order;
+import jakarta.json.JsonObject;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.is;
+
+class MainTest {
+
+
+    private static WebServer webServer;
+    private static WebClient webClient;
+
+    @BeforeAll
+    static void startTheServer() {
+        webServer = Main.startServer().await();
+
+        webClient = WebClient.builder()
+                .baseUri("http://localhost:" + webServer.port())
+                .addMediaSupport(JsonpSupport.create())
+                .build();
+    }
+
+    @AfterAll
+    static void stopServer() throws ExecutionException, InterruptedException, TimeoutException {
+        if (webServer != null) {
+            webServer.shutdown()
+                    .toCompletableFuture()
+                    .get(10, TimeUnit.SECONDS);
+        }
+    }
+
+
+    @Test
+    void testMicroprofileMetrics() {
+        String get = webClient.get()
+                .path("/simple-greet/greet-count")
+                .request(String.class)
+                .await();
+
+        assertThat(get, containsString("Hello World!"));
+
+        String openMetricsOutput = webClient.get()
+                .path("/metrics")
+                .request(String.class)
+                .await();
+
+        assertThat("Metrics output", openMetricsOutput, containsString("application_accessctr_total"));
+    }
+
+    @Test
+    void testMetrics() {
+        WebClientResponse response = webClient.get()
+                .path("/metrics")
+                .request()
+                .await();
+        assertThat(response.status().code(), is(200));
+    }
+
+    @Test
+    void testSimpleGreet() {
+        JsonObject jsonObject = webClient.get()
+                                         .path("/simple-greet")
+                                         .request(JsonObject.class)
+                                         .await();
+        assertThat(jsonObject.getString("message"), is("Hello World!"));
+    }
+}
